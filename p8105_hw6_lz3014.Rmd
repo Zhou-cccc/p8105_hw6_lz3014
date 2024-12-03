@@ -84,7 +84,7 @@ ggplot(boot_straps_1, aes(x = log_beta_product)) +
 - $\hat{r}^2$: The distribution is bell-shaped, centered around 0.91, indicating that most R-squared estimates are concentrated near this value.  
 - $\log(\hat{\beta}_0 * \hat{\beta}_1)$: The distribution is bell-shaped, centered around 2.02, indicating that most log estimates are concentrated near this value.  
 
-### Identify the 2.5% and 97.5% quantiles to provide a 95% confidence interval for $\hat{r}^2$ and $\log(\hat{\beta}_0 * \hat{\beta}_1)$
+### 4. Identify the 2.5% and 97.5% quantiles to provide a 95% confidence interval for $\hat{r}^2$ and $\log(\hat{\beta}_0 * \hat{\beta}_1)$
 ```{r}
 ci_r_squared <- quantile(boot_straps_1$r_squared, c(0.025, 0.975))
 ci_log_beta_product <- quantile(boot_straps_1$log_beta_product, c(0.025, 0.975))
@@ -101,7 +101,7 @@ ci_log_beta_product
 homicide_data <- read_csv("./data/homicide-data.csv")
 ```
 
-### Create variables, omit variables, convert victim_age 
+### 1. Create variables, omit variables, convert victim_age 
 ```{r warning=FALSE}
 homicide_data_tidy <- homicide_data |>
   mutate(city_state = str_c(city, state, sep = ", "), 
@@ -113,7 +113,7 @@ homicide_data_tidy <- homicide_data |>
 head(homicide_data_tidy, 5)
 ```
 
-### Glm: resolved vs unresolved - victim age, sex and race in Baltimore, MD
+### 2. Glm: resolved vs unresolved - victim age, sex and race in Baltimore, MD
 a logistic regression:
 ```{r}
 baltimore_data <- homicide_data_tidy |>
@@ -142,7 +142,7 @@ male_vs_female_results <- baltimore_results |>
 male_vs_female_results
 ```
 
-### Apply the above steps to each of the cities
+### 3. Apply the above steps to each of the cities
 ```{r}
 city_or_results <- homicide_data_tidy |>
   group_by(city_state) |>
@@ -167,7 +167,7 @@ city_or_results <- homicide_data_tidy |>
 head(city_or_results, 5)
 ```
 
-### Create a plot that shows the estimated ORs and CIs for each city.
+### 4. Create a plot that shows the estimated ORs and CIs for each city.
 ```{r}
 ggplot(city_or_results, aes(x = reorder(city_state, odds_ratio), y = odds_ratio)) +
   geom_point() +
@@ -184,3 +184,108 @@ ggplot(city_or_results, aes(x = reorder(city_state, odds_ratio), y = odds_ratio)
 **Comment:**  
 - Most cities have odds ratios between 0.5 and 1, indicating that in these cities, male victims' cases are generally solved at a lower rate compared to female victims.  
 - The width of the confidence intervals varies across cities, reflecting differences in data quantity and uncertainty. Some cities have very wide confidence intervals, indicating high uncertainty in the estimates.
+
+
+# Problem 3
+### 1. Load and clean the data for regression analysis
+```{r}
+birthweight_data <- read_csv("./data/birthweight.csv")
+
+birthweight_data_tidy <- birthweight_data |>
+  mutate(
+    babysex = factor(babysex, levels = c(1, 2), labels = c("Male", "Female")),
+    frace = factor(frace, levels = c(1, 2, 3, 4, 8, 9), labels = c("White", "Black", "Asian", "Puerto Rican", "Other", "Unknown")),
+    mrace = factor(mrace, levels = c(1, 2, 3, 4, 8), labels = c("White", "Black", "Asian", "Puerto Rican", "Other")),
+    malform = factor(malform, levels = c(0, 1), labels = c("Absent", "Present"))
+  ) |>
+  drop_na()
+
+head(birthweight_data_tidy, 5)
+```
+
+### 2. Propose a regression model for birthweight
+```{r}
+bw_lm_1 <- lm(bwt ~ delwt + wtgain + mheight, data = birthweight_data_tidy)
+
+summary(bw_lm_1)
+```
+
+**Modeling process:**  
+- This model uses hypothesized factors that could influence birth weight, including delivery weight (delwt), mother’s weight gain during pregnancy (wtgain) and maternal height (mheight).  
+- A linear regression model was fitted using these predictors, using the formula: *bwt ~ momage + delwt + mheight*.
+
+### 3. A plot of model residuals against fitted values
+```{r}
+birthweight_lm1 <- birthweight_data_tidy |>
+  add_predictions(bw_lm_1, var = "predicted_bwt") |>
+  add_residuals(bw_lm_1, var = "residuals")
+
+ggplot(birthweight_lm1, aes(x = predicted_bwt, y = residuals)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess", se = FALSE, color = "blue") +
+  labs(
+    title = "Residuals vs Fitted Values",
+    x = "Predicted Birth Weight",
+    y = "Residuals"
+  ) +
+  theme_minimal()
+```
+
+### 4. Compare 3 models in terms of the cross-validated prediction error
+```{r}
+cv_splits <- crossv_mc(birthweight_data_tidy, 100)
+
+cv_df <- crossv_mc(birthweight_data_tidy, 100) |>
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble)
+  )
+
+cv_df <- cv_df |>
+  mutate(
+    
+    lm_1 = map(train, ~ lm(bwt ~ delwt + wtgain + mheight, data = .x)),
+    
+    lm_2 = map(train, ~ lm(bwt ~ blength + gaweeks, data = .x)),
+    
+    lm_3 = map(train, ~ lm(bwt ~ bhead * blength * babysex, data = .x)),
+    
+    rmse_lm_1 = map2_dbl(lm_1, test, ~ {
+      predictions <- add_predictions(.y, .x)
+      sqrt(mean((predictions$bwt - predictions$pred)^2, na.rm = TRUE))
+    }),
+    
+    rmse_lm_2 = map2_dbl(lm_2, test, ~ {
+      predictions <- add_predictions(.y, .x)
+      sqrt(mean((predictions$bwt - predictions$pred)^2, na.rm = TRUE))
+    }),
+    
+    rmse_lm_3 = map2_dbl(lm_3, test, ~ {
+      predictions <- add_predictions(.y, .x)
+      sqrt(mean((predictions$bwt - predictions$pred)^2, na.rm = TRUE))
+    })
+  )
+
+rmse_results <- cv_df |>
+  select(starts_with("rmse_")) |>
+  pivot_longer(
+    everything(),
+    names_to = "model",
+    values_to = "rmse",
+    names_prefix = "rmse_"
+  ) |>
+  mutate(model = fct_inorder(model))
+
+ggplot(rmse_results, aes(x = model, y = rmse)) +
+  geom_violin() +
+  labs(
+    title = "RMSE Distribution for 3 Different Models",
+    x = "Model",
+    y = "RMSE"
+  ) +
+  theme_minimal()
+```
+
+- Model 1 (lm_1) has a relatively high RMSE, approximately between 450 and 500, indicating a higher prediction error.  
+- Model 2 (lm_2) has a lower RMSE compared to Model 1, around 350, suggesting it performs better than Model 1.  
+- Model 3 (lm_3) has the lowest RMSE, around 300, with a concentrated distribution, implying the best prediction capability and stability among the three models.
