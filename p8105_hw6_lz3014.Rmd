@@ -12,3 +12,88 @@ library(modelr)
 set.seed(1202)
 ```
 
+# Problem 1
+```{r}
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2017-01-01",
+    date_max = "2017-12-31") |>
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) |>
+  select(name, id, everything())
+```
+
+### 1. A simple linear regression with tmax as the response and tmin as the predictor 
+```{r}
+lm_fit <- lm(tmax ~ tmin, data = weather_df)
+```
+
+### 2. Use 5000 bootstrap samples and produce estimates of $\hat{r}^2$ and $\log(\hat{\beta}_0 * \hat{\beta}_1)$
+```{r}
+bootstrap_function <- function(data) {
+  boot_sample <- sample_frac(data, replace = TRUE)
+  
+  boot_fit <- lm(tmax ~ tmin, data = boot_sample)
+
+  glance_result <- broom::glance(boot_fit)
+  r_squared <- glance_result$r.squared
+  
+  beta <- coef(boot_fit)
+  log_beta_product <- log(beta[1] * beta[2])
+  
+  return(tibble(
+    r_squared = r_squared, 
+    log_beta_product = log_beta_product))
+}
+```
+
+```{r}
+boot_straps_1 <- tibble(strap_number = 1:5000) |>
+  mutate(
+    strap_sample = map(strap_number, \(i) bootstrap_function(weather_df))
+  ) |>
+  unnest(strap_sample)
+
+head(boot_straps_1, 5)
+```
+
+### 3. Plot the distribution of estimates
+```{r}
+ggplot(boot_straps_1, aes(x = r_squared)) +
+  geom_density(color = "black", fill = "skyblue", alpha = 0.5) +
+  labs(
+    title = "Bootstrap Density Distribution of R-squared",
+    x = "R-squared",
+    y = "Density"
+  )
+
+ggplot(boot_straps_1, aes(x = log_beta_product)) +
+  geom_density(color = "black", fill = "skyblue", alpha = 0.5) +
+  labs(
+    title = "Bootstrap Density Distribution of Log_beta_product",
+    x = "Log_beta_product",
+    y = "Density"
+  )
+```
+
+**Description:**  
+- $\hat{r}^2$: The distribution is bell-shaped, centered around 0.91, indicating that most R-squared estimates are concentrated near this value.  
+- $\log(\hat{\beta}_0 * \hat{\beta}_1)$: The distribution is bell-shaped, centered around 2.02, indicating that most log estimates are concentrated near this value.  
+
+### Identify the 2.5% and 97.5% quantiles to provide a 95% confidence interval for $\hat{r}^2$ and $\log(\hat{\beta}_0 * \hat{\beta}_1)$
+```{r}
+# 95% CI
+ci_r_squared <- quantile(boot_straps_1$r_squared, c(0.025, 0.975))
+ci_log_beta_product <- quantile(boot_straps_1$log_beta_product, c(0.025, 0.975))
+
+ci_r_squared
+ci_log_beta_product
+```
+- CI of r_squared: (0.8939448, 0.9271188)  
+- CI of log_beta_product: (1.964509, 2.058203)  
+
+
